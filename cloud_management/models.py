@@ -11,13 +11,13 @@ class User(Base):
     hashed_password = Column(String(256))
     is_admin = Column(Boolean, default=False)
     plan_id = Column(Integer, ForeignKey("plans.id"))
+    # subscription_id = Column(Integer, ForeignKey("subscriptions.id"))
+    
 
-    plan = relationship("Plan", back_populates="users")
 
-
-plan_permission_association = Table('plan_permission_association', Base.metadata,
-    Column('plan_id', Integer, ForeignKey('plans.id')),
-    Column('permission_id', Integer, ForeignKey('permissions.id'))
+plan_permission = Table('plan_permission', Base.metadata,
+    Column('plan_id', ForeignKey('plans.id'), primary_key = True),
+    Column('permission_id', ForeignKey('permissions.id'), primary_key=True)
 )
 
 class Plan(Base):
@@ -26,9 +26,10 @@ class Plan(Base):
     name = Column(String(50), index=True)
     description = Column(String(256))
     api_limit = Column(Integer)
+    
 
-    users = relationship("User", back_populates="plan")
-    permissions = relationship("Permission", secondary=plan_permission_association, back_populates="plans")
+    # users = relationship("User", back_populates="plan")
+    permissions = relationship("Permission", secondary=plan_permission, back_populates="plans")
 
 
 class Permission(Base):
@@ -38,7 +39,7 @@ class Permission(Base):
     api_endpoint = Column(String(100))
     description = Column(String(256))
 
-    plans = relationship("Plan", secondary=plan_permission_association, back_populates="permissions")
+    plans = relationship("Plan", secondary=plan_permission, back_populates="permissions")
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
@@ -49,8 +50,8 @@ class Subscription(Base):
     start_date = Column(DateTime, default=datetime.utcnow)
     end_date = Column(DateTime, nullable=True)  # Optional: if you want to track subscription end
 
-    user = relationship("User")
-    plan = relationship("Plan")
+    
+    plan = relationship("Plan", back_populates="subscription")
 
 
 

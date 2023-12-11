@@ -6,7 +6,7 @@ from sqlalchemy.ext.declarative import declarative_base
 SQLALCHEMY_DATABASE_URL = URL.create(
     "mysql+pymysql",
     username="root",
-    password="yy115110",
+    password="Unordinary124",
     host="localhost",
     database="cloudserver",
 )

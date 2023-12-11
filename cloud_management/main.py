@@ -4,6 +4,7 @@ import random
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import RedirectResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
@@ -118,6 +119,10 @@ async def is_current_user_admin(current_user: Annotated[models.User, Depends(get
 #        raise HTTPException(status_code=403, detail="Access to the API is not permitted")
 #
 #    return True
+
+@app.get("/")
+def welcome():
+    return("Welcome World")
 
 
 @app.post("/login", response_model=schemas.Token)
@@ -315,9 +320,23 @@ def modify_user_plan(user_id: int, subscription_data: schemas.SubscriptionCreate
 
 
 
-@app.get("/access/{user_id}/{api_request}")
-def check_access_permission(user_id: int, api_request: str, db: Session = Depends(get_db)
+@app.get("/access/me/{api_request}")
+def check_access_permission(api_request: str, db: Session = Depends(get_db),
+                  current_user: schemas.User = Depends(get_current_user)          
 ):
+    # 1. get the subscription of the current_user
+    plan_permissions = db.query(models.Permission).join(models.Plan.permissions).join(models.Subscription.plan_id).filter(models.Subscription.user_id == current_user.id).all()
+    # 2. Get subscription plan
+    
+    # 3. Get a list of plan's permission
+    
+    # 4. if {api_request} is in the permission list, redirect to api_endpoint
+    for permission in plan_permissions:
+        if api_request == permission.api_endpoint:
+            return RedirectResponse(api_request)
+       
+    raise HTTPException(status_code=403, detail="Access to the requested API is not permitted")
+        
     # Fetch the user and their subscription
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user or not user.plan:
@@ -334,13 +353,13 @@ def check_access_permission(user_id: int, api_request: str, db: Session = Depend
 #6 random APIs similar to Cloud Services which will be used 
 # as the services that are being managed by this system
 
-@app.get("/api/time")
+@app.get("access/me/api/time")
 def get_current_time(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     return {"current_time": datetime.now().isoformat()}
 
-@app.post("/api/echo")
-def echo_message(message: str):
-    return {"message": message}
+@app.post("/api/hello")
+def echo_message():
+    return {"message": "hello world"}
 
 @app.get("/api/sum")
 def calculate_sum(a: int, b: int):
