@@ -19,6 +19,8 @@ class PlanBase(BaseModel):
     name: str
     description: str
     api_limit: Optional[int] = None
+    permission_ids: List[int] = []
+    #permission_id: Optional[int] = None
 
 class PermissionBase(BaseModel):
     name: str
@@ -62,6 +64,7 @@ class SubscriptionCreate(SubscriptionBase):
 class Subscription(SubscriptionBase):
     id: int
     start_date: datetime
+    plan: Plan
 
     class Config:
         orm_mode = True

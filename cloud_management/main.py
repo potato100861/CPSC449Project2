@@ -11,7 +11,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-
+from sqlalchemy import func
 from . import models, schemas
 from .database import SessionLocal, engine
 
@@ -105,20 +105,25 @@ async def is_current_user_admin(current_user: Annotated[models.User, Depends(get
         raise HTTPException(status_code=400, detail="No Permission")
     return current_user
 
-#def has_permission_to_access(api_endpoint: str, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-#    # Get the user's subscription
-#    subscription = db.query(models.Subscription).filter(models.Subscription.user_id == current_user.id).first()
-#    if not subscription:
-#        raise HTTPException(status_code=403, detail="No active subscription found")
-#
-#    # Get the permissions associated with the user's plan
-#    plan_permissions = db.query(models.Permission).filter(models.Permission.plans.any(id=subscription.plan_id)).all()
-#
-#    # Check if the requested API is in the permissions
-#    if not any(permission.api_endpoint == api_endpoint for permission in plan_permissions):
-#        raise HTTPException(status_code=403, detail="Access to the API is not permitted")
-#
-#    return True
+def get_access_permission(user_id: int, api_request: str, db: Session):
+    # Check if the user has an active subscription
+    subscription = db.query(models.Subscription).filter(
+        models.Subscription.user_id == user_id,
+        models.Subscription.end_date == None  # Active subscription check
+    ).first()
+    
+    if not subscription:
+        raise HTTPException(status_code=403, detail="Access to the requested API is not permitted")
+
+    # Check if the plan has permission for the requested API
+    plan_permissions = db.query(models.Permission).filter(
+        models.Permission.plans.any(id=subscription.plan_id),
+        models.Permission.api_endpoint == api_request  # Match API request format
+    ).first()
+
+    if not plan_permissions:
+        raise HTTPException(status_code=403, detail="Access to the requested API is not permitted")
+
 
 @app.get("/")
 def welcome():
@@ -182,13 +187,23 @@ async def read_users_me(current_user: schemas.User = Depends(get_current_user)):
 
 #Subscription Plan Management - Create
 @app.post("/plans/", response_model=schemas.Plan)
-def create_plan(plan: schemas.PlanBase, db: Session = Depends(get_db),
+def create_plan(plan_schema: schemas.PlanBase, db: Session = Depends(get_db),
                 current_user: schemas.User = Depends(is_current_user_admin)):
-    db_plan = models.Plan(name=plan.name, description=plan.description, api_limit=plan.api_limit)
-    db.add(db_plan)
-    db.commit()
-    db.refresh(db_plan)
-    return db_plan
+    new_plan = models.Plan(name=plan_schema.name,description=plan_schema.description,
+        api_limit=plan_schema.api_limit)
+
+    db.add(new_plan)
+    db.commit()  # Commit to obtain the plan id if it's auto-generated
+
+    # Associate permissions with the plan
+    for perm_id in plan_schema.permission_ids:
+        permission = db.query(models.Permission).get(perm_id)
+        if permission:
+            new_plan.permissions.append(permission)
+    db.commit()  # Commit again to save the associations
+    db.refresh(new_plan)
+    return new_plan
+
 
 
 #Subscription Plan Management - Update
@@ -281,24 +296,27 @@ def delete_permission(permission_id: int,
     db.commit()
     return {"detail": "Permission successfully deleted"}
 
+
+
 @app.post("/subscriptions/", response_model=schemas.Subscription)
 def subscribe_to_plan(subscription_data: schemas.SubscriptionCreate, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    # Check for existing subscription
-    existing_subscription = db.query(models.Subscription).filter(models.Subscription.user_id == current_user.id).first()
-    if existing_subscription:
-        raise HTTPException(status_code=400, detail="User already has an active subscription. Update or delete the current plan before subscribing to a new one.")
+   # Check for existing subscription
+   existing_subscription = db.query(models.Subscription).filter(models.Subscription.user_id == current_user.id).first()
+   if existing_subscription:
+       raise HTTPException(status_code=400, detail="User already has an active subscription. Update or delete the current plan before subscribing to a new one.")
 
-    # Create a new subscription
-    new_subscription = models.Subscription(user_id=subscription_data.user_id, plan_id=subscription_data.plan_id)
-    db.add(new_subscription)
-    db.commit()
-    db.refresh(new_subscription)
-    return new_subscription
+   # Create a new subscription
+   new_subscription = models.Subscription(user_id=subscription_data.user_id, plan_id=subscription_data.plan_id)
+   db.add(new_subscription)
+   db.commit()
+   db.refresh(new_subscription)
+   return new_subscription
 
 
 @app.get("/subscriptions/{user_id}", response_model=schemas.Subscription)
-def get_subscription_details(user_id: int, db: Session = Depends(get_db)):
-    subscription = db.query(models.Subscription).filter(models.Subscription.user_id == user_id).first()
+def get_subscription_details(user_id: int, db: Session = Depends(get_db)
+                             ,current_user: schemas.User = Depends(get_current_user)):
+    subscription = db.query(models.Subscription).filter(models.Subscription.user_id == user_id).join(models.Plan).first()
     if subscription is None:
         raise HTTPException(status_code=404, detail="Subscription not found")
     return subscription
@@ -317,65 +335,146 @@ def modify_user_plan(user_id: int, subscription_data: schemas.SubscriptionCreate
     return subscription
 
 
-
-
-
-@app.get("/access/me/{api_request}")
-def check_access_permission(api_request: str, db: Session = Depends(get_db),
-                  current_user: schemas.User = Depends(get_current_user)          
+@app.get("/access/{user_id}/{api_request}")
+def check_access_permission(
+    user_id: int, 
+    api_request: str, 
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(get_current_user)
 ):
-    # 1. get the subscription of the current_user
-    plan_permissions = db.query(models.Permission).join(models.Plan.permissions).join(models.Subscription.plan_id).filter(models.Subscription.user_id == current_user.id).all()
-    # 2. Get subscription plan
     
-    # 3. Get a list of plan's permission
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized access")
     
-    # 4. if {api_request} is in the permission list, redirect to api_endpoint
-    for permission in plan_permissions:
-        if api_request == permission.api_endpoint:
-            return RedirectResponse(api_request)
-       
-    raise HTTPException(status_code=403, detail="Access to the requested API is not permitted")
-        
-    # Fetch the user and their subscription
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user or not user.plan:
-        raise HTTPException(status_code=404, detail="User or subscription not found")
+    # 1. Check if the user has an active subscription
+    subscription = db.query(models.Subscription).filter(
+        models.Subscription.user_id == user_id,
+        models.Subscription.end_date == None  # Assuming end_date is None for active subscriptions
+    ).first()
+    
+    if not subscription:
+        raise HTTPException(status_code=403, detail="No plan subscribed")
 
-    # Check permissions
-    plan_permissions = db.query(models.Permission).join(models.Plan.permissions).filter(models.Plan.id == user.plan_id).all()
-    if api_request not in [permission.api_endpoint for permission in plan_permissions]:
+    # 2. Check if the plan has permission to access the requested API
+    plan = db.query(models.Plan).filter(models.Plan.id == subscription.plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    # Fetch permissions for the plan
+    plan_permissions = db.query(models.Permission).filter(
+        models.Permission.plans.any(id=plan.id),
+        models.Permission.api_endpoint == api_request  # Ensure this matches the format stored in your database
+    ).first()
+
+    if not plan_permissions:
         raise HTTPException(status_code=403, detail="Access to the requested API is not permitted")
 
-    return {"message": "Access granted"}
+    return {"message": "Access granted to the API"}
 
 
-#6 random APIs similar to Cloud Services which will be used 
-# as the services that are being managed by this system
 
-@app.get("access/me/api/time")
-def get_current_time(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+@app.post("/usage/{user_id}")
+def track_api_request(user_id: int, api_endpoint: str, db: Session = Depends(get_db)
+                      ,current_user: schemas.User = Depends(get_current_user)):
+    usage_record = models.ApiUsage(user_id=user_id, api_endpoint=api_endpoint)
+    db.add(usage_record)
+    db.commit()
+    return {"message": "API usage tracked"}
+
+
+@app.get("/usage/{user_id}/limit")
+def check_limit_status(user_id: int, db: Session = Depends(get_db),
+                       current_user: schemas.User = Depends(get_current_user)):
+    user_plan = db.query(models.Plan).join(models.Subscription).filter(models.Subscription.user_id == user_id).first()
+    if not user_plan:
+        raise HTTPException(status_code=404, detail="User plan not found")
+
+    usage_count = db.query(func.count(models.ApiUsage.id)).filter(
+        models.ApiUsage.user_id == user_id,
+        models.ApiUsage.timestamp >= datetime.utcnow() - timedelta(days=30)  # Assuming monthly limit
+    ).scalar()
+
+    limit_exceeded = usage_count > user_plan.api_limit
+    return {"limit_exceeded": limit_exceeded, "current_usage": usage_count, "max_limit": user_plan.api_limit}
+
+
+
+@app.get("/time")
+def get_current_time(db: Session = Depends(get_db), 
+                    current_user: schemas.User = Depends(get_current_user)
+):
+    # Perform the access check
+    check_access_permission(current_user.id, "time", db)
+    track_api_request(current_user.id, "/time", db)
+
+    limit_status = check_limit_status(current_user.id, db)
+    if limit_status["limit_exceeded"]:
+        raise HTTPException(status_code=429, detail="API limit exceeded")
+
+    # If the function hasn't raised an exception, proceed with the endpoint
     return {"current_time": datetime.now().isoformat()}
 
-@app.post("/api/hello")
-def echo_message():
+
+@app.post("/hello")
+def echo_message(db: Session = Depends(get_db), 
+                current_user: schemas.User = Depends(get_current_user)):
+    check_access_permission(current_user.id, "hello", db)
+    track_api_request(current_user.id, "/time", db)
+
+    limit_status = check_limit_status(current_user.id, db)
+    if limit_status["limit_exceeded"]:
+        raise HTTPException(status_code=429, detail="API limit exceeded")
+
     return {"message": "hello world"}
 
-@app.get("/api/sum")
-def calculate_sum(a: int, b: int):
+@app.get("/sum")
+def calculate_sum(a: int, b: int, db: Session = Depends(get_db), 
+                    current_user: schemas.User = Depends(get_current_user)):
+    check_access_permission(current_user.id, "sum", db)
+    track_api_request(current_user.id, "/time", db)
+
+    limit_status = check_limit_status(current_user.id, db)
+    if limit_status["limit_exceeded"]:
+        raise HTTPException(status_code=429, detail="API limit exceeded")
+    
     return {"sum": a + b}
 
-@app.get("/api/random")
-def generate_random_number(min: int = 0, max: int = 100):
+@app.get("/random")
+def generate_random_number(min: int = 0, max: int = 100,
+                           db: Session = Depends(get_db), 
+                            current_user: schemas.User = Depends(get_current_user)):
+    check_access_permission(current_user.id, "random", db)
+    track_api_request(current_user.id, "/time", db)
+
+    limit_status = check_limit_status(current_user.id, db)
+    if limit_status["limit_exceeded"]:
+        raise HTTPException(status_code=429, detail="API limit exceeded")
+
     return {"random_number": random.randint(min, max)}
 
-@app.get("/api/convert_temp")
-def convert_temperature(celsius: float):
+@app.get("/convertTemp")
+def convert_temperature(celsius: float, db: Session = Depends(get_db), 
+                        current_user: schemas.User = Depends(get_current_user)):
+    check_access_permission(current_user.id, "convertTemp", db)
+    track_api_request(current_user.id, "/time", db)
+
+    limit_status = check_limit_status(current_user.id, db)
+    if limit_status["limit_exceeded"]:
+        raise HTTPException(status_code=429, detail="API limit exceeded")
+
     fahrenheit = (celsius * 9/5) + 32
     return {"fahrenheit": fahrenheit}
 
-@app.get("/api/palindrome")
-def check_palindrome(text: str):
+@app.get("/palindrome")
+def check_palindrome(text: str, db: Session = Depends(get_db), 
+                    current_user: schemas.User = Depends(get_current_user)):
+    check_access_permission(current_user.id, "palindrome", db)
+    track_api_request(current_user.id, "/time", db)
+
+    limit_status = check_limit_status(current_user.id, db)
+    if limit_status["limit_exceeded"]:
+        raise HTTPException(status_code=429, detail="API limit exceeded")
+
     return {"is_palindrome": text == text[::-1]}
 
 

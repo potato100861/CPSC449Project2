@@ -12,8 +12,9 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     plan_id = Column(Integer, ForeignKey("plans.id"))
     # subscription_id = Column(Integer, ForeignKey("subscriptions.id"))
-    
 
+    api_usage = relationship("ApiUsage", back_populates="user")
+    
 
 plan_permission = Table('plan_permission', Base.metadata,
     Column('plan_id', ForeignKey('plans.id'), primary_key = True),
@@ -26,9 +27,9 @@ class Plan(Base):
     name = Column(String(50), index=True)
     description = Column(String(256))
     api_limit = Column(Integer)
+    #permission_id = Column(Integer, ForeignKey("permissions.id"))
     
-
-    # users = relationship("User", back_populates="plan")
+    subscriptions = relationship("Subscription", back_populates="plan")
     permissions = relationship("Permission", secondary=plan_permission, back_populates="plans")
 
 
@@ -51,8 +52,15 @@ class Subscription(Base):
     end_date = Column(DateTime, nullable=True)  # Optional: if you want to track subscription end
 
     
-    plan = relationship("Plan", back_populates="subscription")
+    plan = relationship("Plan", back_populates="subscriptions")
 
+class ApiUsage(Base):
+    __tablename__ = "api_usage"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    api_endpoint = Column(String(50))
+    timestamp = Column(DateTime, default=datetime.utcnow)
 
+    user = relationship("User", back_populates="api_usage")
 
 # You can add more models as needed based on your application requirements
