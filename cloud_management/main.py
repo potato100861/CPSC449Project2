@@ -404,7 +404,7 @@ def get_current_time(db: Session = Depends(get_db),
                     current_user: schemas.User = Depends(get_current_user)
 ):
     # Perform the access check
-    check_access_permission(current_user.id, "time", db)
+    get_access_permission(current_user.id, "time", db)
     track_api_request(current_user.id, "/time", db)
 
     limit_status = check_limit_status(current_user.id, db)
@@ -418,8 +418,8 @@ def get_current_time(db: Session = Depends(get_db),
 @app.post("/hello")
 def echo_message(db: Session = Depends(get_db), 
                 current_user: schemas.User = Depends(get_current_user)):
-    check_access_permission(current_user.id, "hello", db)
-    track_api_request(current_user.id, "/time", db)
+    get_access_permission(current_user.id, "hello", db)
+    track_api_request(current_user.id, "/hello", db)
 
     limit_status = check_limit_status(current_user.id, db)
     if limit_status["limit_exceeded"]:
@@ -430,8 +430,8 @@ def echo_message(db: Session = Depends(get_db),
 @app.get("/sum")
 def calculate_sum(a: int, b: int, db: Session = Depends(get_db), 
                     current_user: schemas.User = Depends(get_current_user)):
-    check_access_permission(current_user.id, "sum", db)
-    track_api_request(current_user.id, "/time", db)
+    get_access_permission(current_user.id, "sum", db)
+    track_api_request(current_user.id, "/sum", db)
 
     limit_status = check_limit_status(current_user.id, db)
     if limit_status["limit_exceeded"]:
@@ -443,8 +443,8 @@ def calculate_sum(a: int, b: int, db: Session = Depends(get_db),
 def generate_random_number(min: int = 0, max: int = 100,
                            db: Session = Depends(get_db), 
                             current_user: schemas.User = Depends(get_current_user)):
-    check_access_permission(current_user.id, "random", db)
-    track_api_request(current_user.id, "/time", db)
+    get_access_permission(current_user.id, "random", db)
+    track_api_request(current_user.id, "/random", db)
 
     limit_status = check_limit_status(current_user.id, db)
     if limit_status["limit_exceeded"]:
@@ -455,8 +455,8 @@ def generate_random_number(min: int = 0, max: int = 100,
 @app.get("/convertTemp")
 def convert_temperature(celsius: float, db: Session = Depends(get_db), 
                         current_user: schemas.User = Depends(get_current_user)):
-    check_access_permission(current_user.id, "convertTemp", db)
-    track_api_request(current_user.id, "/time", db)
+    get_access_permission(current_user.id, "convertTemp", db)
+    track_api_request(current_user.id, "/convertTemp", db)
 
     limit_status = check_limit_status(current_user.id, db)
     if limit_status["limit_exceeded"]:
@@ -468,8 +468,8 @@ def convert_temperature(celsius: float, db: Session = Depends(get_db),
 @app.get("/palindrome")
 def check_palindrome(text: str, db: Session = Depends(get_db), 
                     current_user: schemas.User = Depends(get_current_user)):
-    check_access_permission(current_user.id, "palindrome", db)
-    track_api_request(current_user.id, "/time", db)
+    get_access_permission(current_user.id, "palindrome", db)
+    track_api_request(current_user.id, "/palindrome", db)
 
     limit_status = check_limit_status(current_user.id, db)
     if limit_status["limit_exceeded"]:
